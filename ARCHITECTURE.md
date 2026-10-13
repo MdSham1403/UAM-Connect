@@ -64,7 +64,8 @@ src/
 - Supabase Auth, email + password, email confirmation, password recovery (settings per D-13).
 - JWT carries identity only; **authorization is evaluated in the database on every query** from membership and role tables, so suspending a member takes effect without waiting for token expiry.
 - Sign-out clears local caches and drafts containing team data. Session expiry redirects to login with a clear message.
-- Membership states: `pending → approved → suspended/removed`. Pending users reach only the Join Request status screen.
+- **Joining flow (D-03):** sign up → confirm email → sign in → `redeem_join_code` (authenticated, email-confirmed) creates profile data, `join_requests` row and a `pending` membership → Admin approves. Membership states: *no membership* → `pending` → `approved` → `suspended`/`removed`. Users without membership or with `pending` status reach only the join/status screen.
+- Sensitive Admin/Superadmin functions require an aal2 (TOTP) session (D-13).
 
 ## 5. Authorization model
 

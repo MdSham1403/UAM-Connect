@@ -64,6 +64,7 @@ Organizational title and operational roles never feed any authorization check. F
 
 - Admin creates a code; the raw value is shown **once**, only a hash is stored (D-02).
 - At least 64 bits of entropy; expiry; `max_uses`; `use_count`; revocation; rotation from Admin Settings.
+- **Flow (D-03):** the user first creates an account and confirms their email; only a signed-in, email-confirmed session may call the redemption function. Anonymous or unconfirmed callers are rejected.
 - Redemption is an authenticated function: constant-style comparison by hash lookup, uniform error messages, attempt recorded in `rate_limit_events`, lockout after repeated failures.
 - Redemption only creates a **pending** membership. Access requires explicit approval; roles are granted separately.
 - Codes never appear in logs, URLs, analytics or error messages.
@@ -105,7 +106,7 @@ Logged in the same transaction as the action: join-code create/revoke/rotate/red
 - Authorization is evaluated per query, so suspension blocks reads/writes at once even while a JWT is valid.
 - Use short access-token lifetime and refresh tokens per Supabase defaults; review settings in Phase 1.
 - On suspension/removal: set status, revoke refresh sessions (via a trusted server path), close Realtime subscription client-side, and verify with a live-JWT test (SEC-12, SEC-21).
-- Privileged users: TOTP MFA (D-13).
+- **MFA (D-13, decided):** sensitive Admin/Superadmin actions require a TOTP-verified session (aal2), enforced inside the privileged functions, not only in the UI. Proposed sensitive actions: approve/reject/suspend/reinstate members, grant/revoke app roles, create/revoke/rotate joining codes, change team settings, view audit log, Superadmin diagnostics. Verify Supabase MFA behaviour in Phase 1c/1e.
 
 ## 11. Application hardening
 
@@ -123,7 +124,7 @@ Logged in the same transaction as the action: join-code create/revoke/rotate/red
 | R-02 | Realtime RLS behaviour and performance with policies must be tested, not assumed. |
 | R-03 | Dependence on Supabase availability, limits and pricing; approval of hosting for team data (D-11). |
 | R-04 | Single technical owner is a continuity risk; document recovery and consider a second trusted holder. |
-| R-05 | Join-code redemption after signup allows spam accounts (D-03); CAPTCHA/domain allowlist unresolved. |
+| R-05 | Account-first signup (D-03) permits spam accounts; mitigated by email confirmation and Auth rate limits; CAPTCHA/domain allowlist unresolved (D-18). |
 | R-06 | Web Push support varies (notably iOS requires installation); delivery is best-effort. |
 | R-07 | Push subscription key storage approach (plain locked table vs encrypted/Vault) undecided. |
 | R-08 | Free-tier quotas, backups and point-in-time recovery depend on plan; verify before launch. |

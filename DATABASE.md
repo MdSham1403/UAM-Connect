@@ -1,6 +1,27 @@
 # DATABASE
 
-**Status: PROPOSED. Nothing here is implemented.** No migrations exist. The schema must be reviewed, then implemented only through versioned SQL migrations in the phase that needs each table. Requirements: [PROJECT_SPEC](PROJECT_SPEC.md) · Controls: [SECURITY](SECURITY.md) · Design: [ARCHITECTURE](ARCHITECTURE.md).
+**Status: PROPOSED, except the Phase 1b baseline below (implemented).** Everything else is a proposal; implement it only through versioned SQL migrations in the phase that needs each table. Requirements: [PROJECT_SPEC](PROJECT_SPEC.md) · Controls: [SECURITY](SECURITY.md) · Design: [ARCHITECTURE](ARCHITECTURE.md).
+
+## 0. Implementation status
+
+| Object | Status | Migration |
+|---|---|---|
+| `private` schema (no API role has USAGE) | Implemented, Phase 1b | `20261013000000_baseline_teams_audit.sql` |
+| `private.set_updated_at()`, `private.is_valid_timezone()`, `private.audit_logs_block_mutation()` (all SECURITY INVOKER, empty `search_path`) | Implemented, Phase 1b | same |
+| `public.teams` (`id`, `name`, `timezone`, `created_at`, `updated_at`) | Implemented, Phase 1b | same |
+| `public.audit_logs` (append-only intent) | Implemented, Phase 1b | same |
+| Synthetic dev seed (`supabase/seed.sql`, one team, fixed UUID) | Implemented, Phase 1b | n/a (local `db reset` only) |
+| Everything else in §3 | Proposed, not implemented | Phases 1c onward |
+
+Phase 1b decisions and deviations from the proposal below:
+- **RLS enabled, no policies, all API-role privileges revoked** on both tables. Nothing is reachable through the Supabase API yet; client policies arrive with `team_memberships` (Phase 1d) because they depend on it. Supabase grants new `public` tables to `anon`/`authenticated`/`service_role` by default, so the migration revokes explicitly. `service_role` is revoked too; grant back narrowly when a trusted function needs it.
+- `teams.incident_seq` is **deferred to Phase 3** (incidents); adding a column later is a trivial migration.
+- `teams` has a CHECK for a valid time zone, a non-blank name up to 100 characters, and a unique index on `lower(name)`.
+- `audit_logs.actor_user_id` is deliberately **not** a foreign key to `auth.users`, so deleting an account can never alter or block audit history. `team_id` is `ON DELETE RESTRICT`.
+- **No helper functions for authorization** (`is_approved_member` etc.) were created: they need `team_memberships` (Phase 1d). **No `SECURITY DEFINER` function exists.**
+- **Append-only limitation:** triggers block `UPDATE`, `DELETE` and `TRUNCATE` for every role, but the table owner or a superuser can still disable or drop triggers. Revoked grants plus RLS keep clients out; hosted-project owner access is covered in [SECURITY](SECURITY.md) §7/§12.
+- Migrations are not re-runnable; "reset" means drop and rebuild (`npm run db:reset` locally).
+- The local test DB targets PostgreSQL 17 (`supabase/config.toml`); confirm the hosted dev project's version after creation.
 
 ## 1. Conventions
 
@@ -36,8 +57,8 @@ team_memberships ─1:N─ notifications ; push_subscriptions ; availability(1:1
 
 | Table | Key columns | Constraints / indexes | RLS expectation |
 |---|---|---|---|
-| `teams` | `id`, `name`, `timezone`, `incident_seq`, `created_at` | — | Approved members read own team; write Admin+ via function |
-| `profiles` | `user_id` PK→`auth.users`, `display_name`, `organizational_title`, `avatar_path`, timestamps | length checks | Own row read/update (permitted columns); approved members read teammates; pending: own only |
+| `teams` | `id`, `name`, `timezone`, `created_at`, `updated_at` (`incident_seq` added in Phase 3) | **Implemented (1b).** Name and timezone checks, unique `lower(name)` | **Now:** RLS on, no policy, no API grants. **Phase 1d:** approved members read own team; write Admin+ via function |
+| `profiles` | `user_id` PK→`auth.users`, `display_name`, `organizational_title`, `avatar_path`, timestamps (row created by `redeem_join_code`, not at signup) | length checks | Own row read/update (permitted columns); approved members read teammates; pending: own only |
 | `team_memberships` | `id`, `team_id`, `user_id`, `membership_status` (`pending`/`approved`/`suspended`/`removed`), `approved_by`, `approved_at`, `suspended_at`, `reports_to_membership_id` (nullable, D-07) | `UNIQUE(team_id,user_id)`; index on `(team_id,membership_status)`; reports_to must be same team | Own row read; approved members read team rows; **no client writes**; changes via functions |
 | `app_roles` | `id`, `team_id`, `key` (`member`/`team_lead`/`admin`), `name`, `permissions` (jsonb, allowlisted keys) | `UNIQUE(team_id,key)`; trigger validates permission keys | Read by approved members; write only by migration/Superadmin function |
 | `member_app_roles` | `membership_id`, `app_role_id`, `granted_by`, `created_at` | PK `(membership_id,app_role_id)` | Own read; Admin+ read; **no client writes** |
@@ -87,7 +108,7 @@ team_memberships ─1:N─ notifications ; push_subscriptions ; availability(1:1
 | Table | Key columns | Constraints / indexes | RLS expectation |
 |---|---|---|---|
 | `push_subscriptions` | `id`, `membership_id`, `endpoint`, key material (storage approach R-07), `created_at`, `revoked_at` | `UNIQUE(endpoint)` | Own insert/revoke only; never returned by profile queries; sender reads via service role |
-| `audit_logs` | `id`, `team_id`, `actor_user_id`, `action`, `entity_type`, `entity_id`, `metadata` jsonb, `created_at` | Index `(team_id,created_at)`; **append-only** (no update/delete grants) | Admin+ read; inserts only inside privileged functions |
+| `audit_logs` | `id`, `team_id`, `actor_user_id` (no FK), `action`, `entity_type`, `entity_id`, `metadata` jsonb (object), `created_at` | **Implemented (1b).** Index `(team_id,created_at desc)`; **append-only** (triggers + no grants) | Admin+ read; inserts only inside privileged functions |
 
 ## 4. Privileged functions (names proposed)
 
@@ -111,7 +132,7 @@ v1 keeps all data. Announcements expire/archive (hidden, not deleted); handovers
 
 ## 8. Migration order
 
-1. Extensions, helper functions, `teams`, `profiles`, `team_memberships`, `app_roles` and seeds, `member_app_roles`, `platform_owners`, `audit_logs`.
+1. **1b (done):** `private` schema and helpers, `teams`, `audit_logs`, synthetic seed. **1c:** `profiles`. **1d:** `team_memberships`, `app_roles` and seeds, `member_app_roles`, authorization helpers and the first client policies. **1e:** `platform_owners`.
 2. `join_codes`, `join_requests`, `rate_limit_events`, membership functions.
 3. `operational_roles` (+ assignments), `shifts`, `shift_assignments`, `availability`, view.
 4. `incident_severities`, `incidents` (+ children), `help_requests` (+ volunteers), `announcements` (+ acknowledgements), `notifications`, `notification_preferences`, `team_settings`.

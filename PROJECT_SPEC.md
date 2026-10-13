@@ -16,8 +16,9 @@ Related documents: [PROJECT_STATE](PROJECT_STATE.md) · [IMPLEMENTATION_PLAN](IM
 | A3 | Day estimates removed. | No fixed-duration promises. Gates matter, not dates. |
 | A4 | Organizational hierarchy is **configurable**; no reporting lines are assumed. | Reporting relationships are unconfirmed. |
 | A5 | Schema additions (severity levels, help-request volunteers, rate-limit events, platform owners, team settings, notification preferences). | v1.0 required these behaviours but lacked tables. See [DATABASE](DATABASE.md). |
-| A6 | v1.0 "Optional" Team Lead capabilities replaced with proposed defaults (decision D-05). | Optional is not testable. |
+| A6 | v1.0 "Optional" Team Lead capabilities replaced with defaults (decision D-05, decided 2026-10-13). | Optional is not testable. |
 | A7 | Acceptance checks given stable IDs; three Superadmin checks added (AC-S8 to AC-S10). | Traceability. |
+| A8 | Joining flow fixed as **account first, then authenticated code redemption** (D-03, decided 2026-10-13); privileged actions require TOTP MFA (D-13). | Attributable, rate-limitable redemption; consistent across documents. |
 
 Unresolved decisions are tracked in the register in [PROJECT_STATE](PROJECT_STATE.md) and referenced here as `D-xx`.
 
@@ -94,9 +95,9 @@ A higher organizational rank does not grant application permissions. A Deputy Ma
 - Highest application-level authority, independent of organizational hierarchy.
 - Manages membership, application permissions (including Admin), operational roles, configuration, audit history and technical diagnostics; responsible for troubleshooting, deployment and recovery.
 - **Never** granted via public signup, a joining code, a profile field, a self-assigned role, or a client-side email comparison.
-- Provisioned through a trusted administrative process, documented in [SECURITY](SECURITY.md) §7 (proposed, D-01). Recovery must not depend solely on a UI that could lock out its owner.
+- Provisioned through a trusted administrative process, documented in [SECURITY](SECURITY.md) §7 (proposed, D-01). Sensitive Admin/Superadmin actions require TOTP MFA (D-13). Recovery must not depend solely on a UI that could lock out its owner.
 
-### Application access matrix (proposed defaults, D-05/D-06)
+### Application access matrix (decided defaults, D-05/D-06)
 | Capability | Member | Team Lead | Admin | Superadmin |
 |---|---|---|---|---|
 | View team and role coverage | Yes | Yes | Yes | Yes |
@@ -153,7 +154,7 @@ Bottom navigation on mobile; compact sidebar on larger screens. Primary: **Home*
 
 ## 5. Core workflows
 
-**A. Joining.** Admin generates a random private code → prospective member redeems it and creates an authenticated account (order: D-03) → submits display name and organizational title → membership is created **pending** → Admin approves or rejects → approval activates membership → Admin assigns operational roles and application permissions separately. The code is never a substitute for authorization: store only a hash, expire, revoke, rate-limit, and always require explicit approval. Public signup can never assign roles or create an Admin.
+**A. Joining (decided, D-03: account first).** Admin generates a random private code and shares it privately → prospective member creates an account and **confirms their email** → signs in and, while authenticated, redeems the code and submits display name and organizational title → membership is created **pending** → Admin approves or rejects → approval activates membership → Admin assigns operational roles and application permissions separately. A signed-in user with no membership, or a pending one, sees only the join/status screen. Redemption is impossible without an authenticated, email-confirmed session. The code is never a substitute for authorization: store only a hash, expire, revoke, rate-limit, and always require explicit approval. Public signup can never assign roles or create an Admin.
 
 **B. Availability and shifts.** Statuses: Available, Busy, On Break, Off Shift, with optional note and expiry. Expired or stale status displays **Unknown**, never Available. Configured shifts define expected coverage; manual status is self-reported. The Live Ops Board shows the current shift, expected members, who has checked in, role coverage/gaps, active incidents and help requests. No location tracking.
 

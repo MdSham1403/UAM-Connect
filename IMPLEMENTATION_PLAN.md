@@ -26,15 +26,15 @@ Cross-cutting from Phase 1: every new table ships with RLS, policies, and tests 
 
 ## Phase 1 — Secure foundation
 
-**Prerequisites:** D-03, D-08, D-11, D-13 decided; D-01/D-02/D-05/D-06 confirmed.
+**Prerequisites:** D-03, D-05, D-06, D-08, D-11, D-13 decided (2026-10-13). Before 1d: decide D-18 and confirm D-01, D-02, D-17.
 
 | Step | Work | Acceptance | Commit |
 |---|---|---|---|
-| 1a | Vite + React + TypeScript scaffold, Tailwind, Vitest + RTL, ESLint, Prettier, `.gitignore` (verify `.env*` ignored), CI workflow running typecheck/lint/test/build | App shell renders; `typecheck`, `lint`, `test`, `build` pass locally and in CI; fresh clone runs from README | `chore: scaffold app` |
-| 1b | Supabase dev project, CLI linked, baseline migration (`teams`, helper functions, audit table), seed one team | Migrations apply from empty database (AC-S6 start); no secrets in Git | `feat(db): baseline migration` |
-| 1c | Auth: sign-in/out, recovery, session handling, `profiles` | User can sign up, confirm, sign in, sign out; session expiry handled | `feat(auth): authentication` |
-| 1d | Joining codes, `redeem_join_code`, pending membership, admin approve/reject/suspend functions, audit entries | AC-M1, AC-M2, AC-M3, AC-M6 verified by tests | `feat(membership): codes and approval` |
-| 1e | Superadmin bootstrap script + runbook, application permission bundles, minimal admin Members screen, RLS test suite for all personas | AC-S1, AC-S2, AC-S3, AC-S8, AC-S9, AC-S10 verified; bootstrap executed once and documented | `feat(security): superadmin and rls tests` |
+| 1a | Vite + React + TypeScript scaffold, Tailwind, Vitest + RTL, oxlint (create-vite default), Prettier, Node pin, `.gitignore` (verify `.env*` ignored), CI workflow running typecheck/lint/test/build | App shell renders; `typecheck`, `lint`, `test`, `build` pass locally and in CI; fresh clone runs from README | `chore: scaffold app` |
+| 1b | Supabase CLI config, baseline migration (`teams`, `audit_logs`, internal trigger/validator helpers; no authorization helpers yet), synthetic seed, pgTAP tests; owner creates and links the dev project | Migrations apply from empty database (AC-S6 start); RLS on every table, no client policy, no API grants; audit append-only; no secrets in Git | `feat(db): baseline migration` |
+| 1c | Auth: sign-in/out, recovery, session handling, `profiles` | User can sign up, confirm email, sign in, sign out; session expiry handled; signed-in user without membership sees only the join screen | `feat(auth): authentication` |
+| 1d | Joining codes, `redeem_join_code` (authenticated, email-confirmed users only), pending membership, admin approve/reject/suspend functions, audit entries | AC-M1, AC-M2, AC-M3, AC-M6 verified by tests | `feat(membership): codes and approval` |
+| 1e | Superadmin bootstrap script + runbook, application permission bundles, minimal admin Members screen, RLS test suite for all personas | AC-S1, AC-S2, AC-S3, AC-S8, AC-S9, AC-S10 verified; sensitive Admin/Superadmin functions reject non-MFA sessions (D-13); bootstrap executed once and documented | `feat(security): superadmin and rls tests` |
 
 **Exit gate:** unauthorized users cannot access team data; Admin can approve a member safely; Superadmin bootstrap verified and recovery runbook exercised.
 **Tag:** `phase-1`.
