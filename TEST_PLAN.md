@@ -9,7 +9,7 @@ Status: **plan only**. No tests exist and none have been run. Results are record
 | Static | TypeScript, oxlint, Prettier | Every commit; also CI |
 | Unit | Vitest | Pure logic: availability expiry display, validation schemas, formatting, permission helpers on the client (cosmetic only) |
 | Component | Vitest + React Testing Library | Screens' loading/empty/error states, forms, role-based visibility (cosmetic) |
-| Database / RLS | SQL tests (pgTAP via Supabase CLI, proposed) and/or Vitest integration tests with real JWTs per persona | Policies, privileged functions, constraints, migrations from empty database |
+| Database / RLS | SQL verification script (`supabase/tests/verify.sql`, no Docker) and/or Vitest integration tests with real JWTs per persona | Policies, privileged functions, constraints, migrations from empty database |
 | Integration | Vitest against a dev Supabase project or local stack (D-08) | Workflows end to end through the API |
 | End to end | Playwright | Key user journeys on mobile and desktop viewports |
 | Manual | Checklists below | Real devices, install, push, usability |
@@ -105,4 +105,28 @@ Sign up → confirm email → sign in → redeem (D-03); redemption without an a
 
 Typecheck, lint, unit/component tests, build, secret scan, migration-from-empty check, RLS-enabled check (SEC-22). Playwright smoke added in Phase 5.
 
-**Database tests (Phase 1b):** pgTAP files in `supabase/tests/database/`, run with `npm run db:test` (needs Docker and the local Supabase stack) or `supabase test db --linked`. SEC-22 is implemented there (assertion 4). A CI job running `supabase start`, `db reset` and `db test` is **not yet wired** (needs Docker on the runner and is unverified); candidate for Phase 1e. The assertion that no policies exist is intentionally temporary and must be revised in Phase 1d when the first client policies are added.
+**Database tests (Phases 1b–2a):** `supabase/tests/verify.sql` is one rollback-only statement (329 checks: RLS on every table, the exact policy set, privilege and function-execute inventories, constraints, append-only audit, and the whole joining, approval, suspension, role-grant, code, Superadmin bootstrap and recovery workflow including MFA, self-action and cross-team refusals, plus a persona matrix of eight personas: stranger, pending/approved newcomer, plain member, Team Lead, suspended member, Admin, other-team Admin and Superadmin). It needs no Docker or extensions. Run it with `npm run db:verify` (hosted dev project via the CLI) or paste it into the dashboard SQL editor; it always ends with a deliberate error whose first line is `VERIFY RESULT: PASS` or `FAIL`. `supabase test db` (pgTAP) was dropped because it requires Docker even for a remote database. SEC-22 is implemented there. The CI `database` job (workflow `ci.yml`) applies the migrations to an empty PostgreSQL 16 service container, with `supabase/tests/ci/stub_supabase.sql` standing in for Supabase's roles and `auth` schema, and runs `verify.sql`. The commands were run locally; **the GitHub Actions run itself has not been seen**. The check that the policy set is exactly the expected list must be updated whenever a policy is added (Phase 1e adds admin read policies). Lesson recorded: test cases must resolve row IDs as the table owner; looking them up as the acting user hides rows under RLS and makes denial tests pass for the wrong reason.
+
+**Frontend auth tests (Phase 1c):** `src/features/auth/*.test.tsx`, `src/features/profile/*.test.tsx`, `src/App.test.tsx` use a hand-written fake Supabase client (`src/test/fakeSupabase.ts`). They are **mocked**: they prove how our code reacts to Supabase responses, not how real Supabase Auth behaves. Real-Supabase integration tests do not exist yet; see the manual checklist below.
+
+## 10. Manual auth checklist (needs a hosted dev project; not yet run)
+
+1. Sign up with a new address; confirm the email arrives; open the link on the **same** device; land signed in at the account page with "not a team member".
+2. Repeat on a different browser/device than the one used to sign up (expected to fail with the default PKCE template; passes only after the token-hash template change, D-19).
+3. Sign up again with the same address: the screen shows the same message; no second email is required.
+4. Wrong password shows the generic message; five rapid attempts eventually show the rate-limit message.
+5. Forgot password for a real and a non-existent address: identical message; real address receives a link; the link opens the reset form only; weak and mismatched passwords are refused; success returns to the account page; old password no longer works.
+6. Open a recovery link, then close the tab without finishing: reopen the app and confirm what state it shows; sign out and confirm no stale recovery session remains.
+7. Sign out, then use the browser Back button: no protected content appears.
+8. In another tab, sign out; the first tab returns to sign-in with the "session has ended" notice.
+9. Create and edit the profile; confirm in the dashboard that only `display_name` and `organizational_title` changed.
+10. Run `npm run db:verify`: expect `VERIFY RESULT: PASS (329 passed, 0 failed)`.
+11. Joining (no Admin exists yet, so only up to pending): create a synthetic dev join code in the SQL editor by inserting a `join_codes` row whose `code_hash` is the SHA-256 hex of a code you choose (see below), sign up and confirm a user, enter the code on the join screen, and confirm the waiting screen. Confirm in the dashboard that the membership is `pending`, the profile exists, and `join_codes.use_count` is 1. Entering a wrong code shows the generic message; five wrong codes shows the rate-limit message.
+12. Confirm in Project Settings, API that `private` is **not** in the exposed schemas (R-21).
+
+Hash for step 11 (SQL editor, owner role): `select encode(sha256(convert_to('YOURCODEHERE0001', 'UTF8')), 'hex');` then insert it with an `expires_at` in the future, `max_uses` 1 and your team's id. Use synthetic data only.
+13. Superadmin (needs the runbook): bootstrap your owner account; sign in; confirm the Administration section appears; set up an authenticator app; confirm actions are disabled until the code is verified; create a joining code (shown once); approve a test member; suspend and reinstate them; confirm a plain member sees no Administration section.
+14. Confirm a second run of the bootstrap statement is refused, and that `recovery := true` adds a second Superadmin.
+15. Confirm in the dashboard that `platform_owners` cannot be read through the Table editor's API view and that no other role can execute `private.bootstrap_superadmin`.
+16. Operational roles (as an Admin with MFA): confirm the six seeded roles; create a role; rename it; assign two roles to one member and make one primary; deactivate a role and confirm it disappears from member chips but stays on the Admin list; confirm an inactive role cannot be assigned.
+17. As an ordinary member: confirm the directory lists approved members only, searches by name, title and role, and shows no Role administration section; as a pending or suspended user, confirm no directory.

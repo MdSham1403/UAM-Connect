@@ -18,3 +18,42 @@ jobs:
       - run: npm run format:check
       - run: npm run test
       - run: npm run build
+  database:
+    # Applies every migration to an empty PostgreSQL and runs supabase/tests/verify.sql.
+    # Uses a stand-in for Supabase (supabase/tests/ci/stub_supabase.sql), so it proves the SQL,
+    # not Supabase itself. The password below is for a throwaway CI container only.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: ci-only-throwaway
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Stub the Supabase pieces
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/ci/stub_supabase.sql
+      - name: Apply migrations to an empty database
+        run: |
+          for f in supabase/migrations/*.sql; do
+            echo "applying $f"
+            psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: Run database verification
+        run: |
+          set +e
+          psql -f supabase/tests/verify.sql > verify.out 2>&1
+          cat verify.out
+          grep -q "VERIFY RESULT: PASS" verify.out

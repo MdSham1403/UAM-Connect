@@ -69,21 +69,24 @@ Organizational title and operational roles never feed any authorization check. F
 - Redemption only creates a **pending** membership. Access requires explicit approval; roles are granted separately.
 - Codes never appear in logs, URLs, analytics or error messages.
 
-## 7. Superadmin bootstrap and recovery (proposed, D-01)
+### Implemented in Phase 1d (sandbox-verified only)
+
+- Flow: sign up, confirm email, sign in, `redeem_join_code`, **pending**, Admin `review_join_request`. A code never grants access; only an approved membership row does, and only an Admin with MFA can create one.
+- Every state change is a SECURITY DEFINER function with a pinned empty `search_path`, an explicit permission check against the target row's own team (cross-team requests are refused), a self-action block, and an audit entry. Unknown rows and missing permission return the same error so existence is not revealed. EXECUTE is limited to `authenticated`; `anon`, `service_role` and PUBLIC cannot call anything.
+- Clients have no write access to any membership, role, code, rate-limit or audit table (verified by privilege inventory and by attempted writes).
+- Raw codes appear nowhere in tables or audit metadata (verified).
+- Suspension takes effect on the next query (verified: a suspended user's team read returns nothing immediately).
+
+## 7. Superadmin bootstrap and recovery (implemented in Phase 1e; sandbox-verified only; D-01 awaiting your confirmation)
 
 **Principle:** Superadmin is never self-service and never evaluated in the frontend.
 
-**Bootstrap (one-time, trusted environment):**
-1. Owner creates an ordinary account through normal Auth and confirms the email.
-2. In the Supabase dashboard SQL editor (runs with elevated database role; not reachable from the app), the owner runs the documented bootstrap script, committed to Git **without any identity values**, which inserts the owner's `auth.users` ID into `platform_owners` and creates the team membership as approved, plus an `audit_logs` entry marked `bootstrap`.
-3. The owner enters their own user ID at run time; it is not committed. The script refuses to run if a Superadmin already exists unless a recovery flag is explicitly set.
-4. Verify via SEC-07 and SEC-08 that no client path can repeat step 2.
-
-**Recovery (no dependency on the UI):**
-- If the owner loses app access, repeat the dashboard-SQL path with the Supabase account that owns the project (protect this account with MFA and a recovery method).
-- Keep a documented, tested runbook in the repository; test it on the dev project before production (AC-S9).
-- Application paths cannot remove the last Superadmin (trigger). Consider a second break-glass Superadmin held offline (open question).
-- The Supabase project owner account is itself a critical asset: use MFA; limit who has dashboard access.
+- **Storage:** `public.platform_owners`. RLS on, no policy, every API privilege revoked, no API-reachable function writes it (checked by privilege inventory, attempted writes and a source-level scan in `verify.sql`).
+- **Bootstrap:** `private.bootstrap_superadmin(user_id, team_id, display_name, recovery := false)`. Only the database owner can execute it (every API role is refused; checked). The account must already exist with a confirmed email. It refuses to run when an active Superadmin exists unless `recovery` is true. It creates an **approved** membership with the Member bundle only and writes an audit record with no acting user. Full procedure: [docs/RUNBOOK_SUPERADMIN.md](docs/RUNBOOK_SUPERADMIN.md).
+- **Last-owner guard (AC-S10):** a trigger refuses to revoke or delete the last active owner and refuses to change `user_id`. A deliberate override (`uam.allow_last_owner_removal = 'yes'` in the same transaction) exists for decommissioning. It is a safety net against mistakes, not against the database owner.
+- **Recovery without the UI (AC-S9):** re-run the function with `recovery := true` from the SQL editor. Tested on plain PostgreSQL only; not on Supabase.
+- **Powers:** a Superadmin passes every permission check, may grant and revoke Admin and suspend an Admin, and still needs MFA for every action. Nobody, including another Superadmin, can suspend a Superadmin through the application. A Superadmin cannot grant themselves anything or suspend themselves.
+- **Root of trust:** the Supabase project owner account. Protect it with MFA.
 
 ## 8. Secrets management
 
@@ -108,6 +111,14 @@ Logged in the same transaction as the action: join-code create/revoke/rotate/red
 - On suspension/removal: set status, revoke refresh sessions (via a trusted server path), close Realtime subscription client-side, and verify with a live-JWT test (SEC-12, SEC-21).
 - **MFA (D-13, decided):** sensitive Admin/Superadmin actions require a TOTP-verified session (aal2), enforced inside the privileged functions, not only in the UI. Proposed sensitive actions: approve/reject/suspend/reinstate members, grant/revoke app roles, create/revoke/rotate joining codes, change team settings, view audit log, Superadmin diagnostics. Verify Supabase MFA behaviour in Phase 1c/1e.
 
+### Phase 1c auth notes
+
+- Recommended hosted settings: confirm email on, minimum password 12 with lower/upper/digits, secure password change, redirect allow-list limited to known origins. Local `supabase/config.toml` carries these values; the hosted project is changed only with owner approval (README).
+- Client validation is usability only; Supabase and the database enforce the rules. The sign-in form applies no password policy.
+- No code path reads or logs tokens, passwords or recovery links; `no-console` is an error in lint.
+- The browser key is validated at start-up: a service-role JWT or `sb_secret_` key is refused, so a privileged key cannot be shipped by mistake (SEC-10 still scans the bundle).
+- Profile writes send only `display_name` and `organizational_title`; the database column grants reject anything else.
+
 ## 11. Application hardening
 
 - React escapes by default; no `dangerouslySetInnerHTML` without a sanitizer; markdown rendering restricted.
@@ -130,6 +141,19 @@ Logged in the same transaction as the action: join-code create/revoke/rotate/red
 | R-08 | Free-tier quotas, backups and point-in-time recovery depend on plan; verify before launch. |
 | R-09 | Retention/legal requirements for incident and audit data unknown (D-10). |
 | R-10 | Shared-device usage may leave local drafts; sign-out clearing must be tested. |
+| R-11 | Phase 1c stores the Supabase session (access and refresh tokens) in browser `localStorage` (supabase-js default), readable by any script that runs on the page. Mitigations: no raw HTML rendering, no third-party scripts, strict CSP (Phase 5), lint ban on `console`. Cookie-based storage would need a server component. Accepted for now; revisit before production. |
+| R-12 | Default email templates use PKCE, so a confirmation/reset link only works in the browser that started the flow; the token-hash template change (D-19) fixes this but is a hosted setting and also puts a one-time token in the URL (cleaned client-side, but it passes through the email client and browser history before that). |
+| R-13 | A recovery link signs the user in. The app confines that session to the reset form, but the underlying Supabase session exists until the password is set or the user cancels. |
+| R-14 | The built-in Supabase email sender is rate-limited and for development; password-reset flooding and deliverability need a real SMTP provider and CAPTCHA decision (D-18, D-20). |
+| R-16 | The first Superadmin exists only after the owner runs the bootstrap in the SQL editor on a real project. Until that is done and verified on Supabase, no one can approve requests. The Supabase CLI path for running it (`db query --linked`) is unexercised. |
+| R-17 | MFA enforcement reads the JWT `aal` claim. It is verified only against a simulated claim. Real Supabase JWT contents, TOTP enrolment, and the upgrade to aal2 after verification are exercised only by mocked frontend tests. Losing the authenticator device has no verified recovery path (runbook lists the open question). |
+| R-18 | `redeem_join_code` reads `auth.users.email_confirmed_at` as the function owner. Whether the hosted `postgres` role may do so is unverified. |
+| R-19 | The global cap (50 failed redemptions per 15 minutes across all users) is a **denial-of-service lever**: any signed-in user can burn it and block everyone from joining for 15 minutes. Accepted trade-off against distributed guessing at 80 bits; CAPTCHA or per-IP limits (D-18) would help. |
+| R-20 | `rate_limit_events` and `audit_logs` grow without pruning; retention is undecided (D-10). |
+| R-22 | Reviewer read policies let an Admin read the name and title of every member of their team and the metadata of their team's joining codes without MFA. Intended, but it widens what a stolen Admin session without MFA can read. |
+| R-23 | The guard trigger and the bootstrap function are controls against mistakes and API callers, not against whoever owns the database. |
+| R-21 | The `private` schema must never be added to the project's exposed API schemas. `authenticated` holds USAGE on it for the RLS helper; this is unverified on the hosted project (Settings, API). |
+| R-15 | All Phase 1c auth behaviour is verified with mocked clients only. Real Auth behaviour (error codes, event order, PKCE, rate limits) is unverified until the manual checklist in [TEST_PLAN](TEST_PLAN.md) §10 runs. |
 
 ## 13. Pre-production checklist
 

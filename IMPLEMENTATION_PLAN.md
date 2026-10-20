@@ -31,12 +31,14 @@ Cross-cutting from Phase 1: every new table ships with RLS, policies, and tests 
 | Step | Work | Acceptance | Commit |
 |---|---|---|---|
 | 1a | Vite + React + TypeScript scaffold, Tailwind, Vitest + RTL, oxlint (create-vite default), Prettier, Node pin, `.gitignore` (verify `.env*` ignored), CI workflow running typecheck/lint/test/build | App shell renders; `typecheck`, `lint`, `test`, `build` pass locally and in CI; fresh clone runs from README | `chore: scaffold app` |
-| 1b | Supabase CLI config, baseline migration (`teams`, `audit_logs`, internal trigger/validator helpers; no authorization helpers yet), synthetic seed, pgTAP tests; owner creates and links the dev project | Migrations apply from empty database (AC-S6 start); RLS on every table, no client policy, no API grants; audit append-only; no secrets in Git | `feat(db): baseline migration` |
-| 1c | Auth: sign-in/out, recovery, session handling, `profiles` | User can sign up, confirm email, sign in, sign out; session expiry handled; signed-in user without membership sees only the join screen | `feat(auth): authentication` |
+| 1b | Supabase CLI config, baseline migration (`teams`, `audit_logs`, internal trigger/validator helpers; no authorization helpers yet), synthetic seed, rollback-only SQL verification; owner creates and links the dev project | Migrations apply from empty database (AC-S6 start); RLS on every table; audit append-only; no secrets in Git | `feat(db): baseline migration` |
+| 1c | Email/password sign-up with email confirmation, sign-in/out, password recovery, session persistence/refresh handling, `profiles` (own-row RLS), loading/error/unauthenticated states, UI gate (not an access control), mocked auth tests, secure local auth config | Signed-in non-member sees no team data; sign-up never grants membership; unexpected sign-out handled; server session at sign-up refused; mocked tests pass; real-Supabase checks done from the manual checklist | `feat(auth): authentication` |
 | 1d | Joining codes, `redeem_join_code` (authenticated, email-confirmed users only), pending membership, admin approve/reject/suspend functions, audit entries | AC-M1, AC-M2, AC-M3, AC-M6 verified by tests | `feat(membership): codes and approval` |
 | 1e | Superadmin bootstrap script + runbook, application permission bundles, minimal admin Members screen, RLS test suite for all personas | AC-S1, AC-S2, AC-S3, AC-S8, AC-S9, AC-S10 verified; sensitive Admin/Superadmin functions reject non-MFA sessions (D-13); bootstrap executed once and documented | `feat(security): superadmin and rls tests` |
 
 **Exit gate:** unauthorized users cannot access team data; Admin can approve a member safely; Superadmin bootstrap verified and recovery runbook exercised.
+
+*Status (2026-10-18): 1a to 1e are built. The gate is **not met** until the migrations, the bootstrap and the runbook have been run on a real Supabase development project and the owner has confirmed the results.*
 **Tag:** `phase-1`.
 
 ## Phase 2 — Team and Live Ops Board
@@ -46,6 +48,8 @@ Work: operational roles (admin CRUD, deactivate, assign, multiple per member, pr
 **Acceptance:** AC-M4, AC-M5, AC-L1, AC-L2, AC-L3, AC-L5; AC-L4 (shift/coverage part; incident part completes in Phase 3); AC-S5 checked on narrow screens.
 **Exit gate:** members see accurate shared status and coverage on mobile.
 **Checkpoints:** `feat(roles)`, `feat(shifts)`, `feat(live-board)`; tag `phase-2`.
+
+*Status (2026-10-18): **2a built** (operational roles, assignment, team directory; covers AC-M4 and AC-M5 at database and mocked-UI level only). 2b (shifts, availability: AC-L1 to L3) and 2c (Live Ops Board, Realtime: AC-L4, L5; optional reporting line, D-07) not started.*
 
 ## Phase 3 — Coordination
 

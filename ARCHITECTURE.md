@@ -61,11 +61,24 @@ src/
 
 ## 4. Authentication and sessions
 
-- Supabase Auth, email + password, email confirmation, password recovery (settings per D-13).
+Implemented in Phase 1c (unverified against real Supabase; see [PROJECT_STATE](PROJECT_STATE.md)).
+
+- Supabase Auth, email + password, **email confirmation required**, password recovery. Client uses PKCE, `persistSession`, `autoRefreshToken`. Cross-device links (`?flow=…&token_hash=…&type=…`) are verified with `verifyOtp` (D-19).
+- Code layout: `lib/supabase.ts` (client + public-key validation), `features/auth/` (`authApi` wrappers, `authSchemas` Zod validation, `AuthProvider` state machine, screens, `RequireAuth`), `features/profile/`.
+- `AuthProvider` states: `loading → unauthenticated | authenticated | recovery`. An unexpected `SIGNED_OUT` (refresh failure, revoked session, another tab) shows "session has ended"; a user-requested sign-out does not. The provider never calls other Supabase methods inside `onAuthStateChange`.
+- Recovery: a recovery session shows **only** the reset form until the password is saved or the user cancels (which signs out).
+- One-time values (`code`, `token_hash`, `type`, `flow`, error params, URL hash) are removed from the address bar after the client has processed them. Raw server error text is never displayed; fixed messages are used.
+- Sign-up and password-reset responses are identical whether or not an address exists. A session returned at sign-up (confirmation not enforced) is refused and cleared.
+- Sign-out always clears the local session: if the server call fails it falls back to a local-scope sign-out and tells the user other sessions may remain.
+- `RequireAuth` is a UI gate, not an access control. A signed-in user without membership is shown a "not a team member yet" screen and the only table queried is their own `profiles` row.
 - JWT carries identity only; **authorization is evaluated in the database on every query** from membership and role tables, so suspending a member takes effect without waiting for token expiry.
-- Sign-out clears local caches and drafts containing team data. Session expiry redirects to login with a clear message.
-- **Joining flow (D-03):** sign up → confirm email → sign in → `redeem_join_code` (authenticated, email-confirmed) creates profile data, `join_requests` row and a `pending` membership → Admin approves. Membership states: *no membership* → `pending` → `approved` → `suspended`/`removed`. Users without membership or with `pending` status reach only the join/status screen.
-- Sensitive Admin/Superadmin functions require an aal2 (TOTP) session (D-13).
+- **Joining flow (D-03):** sign up → confirm email → sign in → `redeem_join_code` (authenticated, email-confirmed; Phase 1d) creates profile data, `join_requests` row and a `pending` membership → Admin approves. Membership states: *no membership* → `pending` → `approved` → `suspended`/`removed`.
+- Sensitive Admin/Superadmin functions require an aal2 (TOTP) session (D-13), enforced inside the database functions (Phase 1d). **Phase 1e UI:** `features/mfa` (`MfaPanel`: TOTP enrolment with QR code and key, or a code prompt when a verified factor exists) and `features/admin` (`AdminSection` shows only when `get_my_access` reports permissions or Superadmin; `AdminScreen` offers MFA first, then joining codes with a once-only code display, pending requests approve/reject, members suspend/reinstate). The Admin UI has no screen yet for granting Team Lead or Admin.
+- **Membership UI (1d):** `features/membership`: `MembershipGate` shows the join form (none or rejected), a waiting screen (pending), a placeholder welcome (approved; the team name is requested only then), or an access-restricted screen (suspended or removed). It reads only the user's own membership row and is presentation only.
+
+## 4a. Superadmin (Phase 1e)
+
+Superadmin is a row in `public.platform_owners`, outside every client-writable table. `private.has_permission` returns true for any key when `private.is_superadmin()`; everyone else needs an approved membership whose role bundle holds the key. The first Superadmin is created only by `private.bootstrap_superadmin(...)`, which only the database owner can execute (SQL editor, runbook). The guard trigger on `platform_owners` stops the last active owner being removed or `user_id` being changed. Reviewer read access is by RLS policies (not RPCs), so no extra function returns member data.
 
 ## 5. Authorization model
 

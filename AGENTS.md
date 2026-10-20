@@ -55,5 +55,5 @@ Rules for any AI assistant or coding agent working on UAM Connect. Read this fil
 - Feature folders under `src/features/`; shared primitives in `src/components/ui/`; typed Supabase access through `src/lib/`.
 - Every screen defines loading, empty, error and retry states; mobile-first layouts.
 - Commit messages: conventional style (`feat(scope): …`, `fix`, `docs`, `chore`, `test`), one logical change per commit, tag at each phase exit.
-- Windows + VS Code is the owner's environment: give PowerShell-compatible commands.
+- Windows + VS Code is the owner's environment: give Command Prompt (CMD) compatible commands, and do not make Docker a requirement.
 - Owner constraints: limited AI usage, so avoid repeated work, keep explanations short, and provide copy-ready content when direct file access is unavailable.
